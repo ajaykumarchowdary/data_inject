@@ -13,4 +13,5 @@ sysinfo = "0.30.13"
 rustls = { version = "*", features = ["ring"] }
 mimalloc = "0.1"  # <--- MAKE SURE THIS LINE IS PRESENT
 bigdecimal = "0.4" # Helps convert Rust Strings to SQL NUMERIC safely
-sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
+dotenvy = "0.15"

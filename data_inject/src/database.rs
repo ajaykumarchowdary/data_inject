@@ -1,60 +1,108 @@
 // src/database.rs
+
+use crate::models::{BitcoinData, SolanaData};
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions, QueryBuilder};
-use crate::models::AggTradeMessage;
+use std::error::Error;
+use std::fmt;
+
+#[derive(Debug)]
+pub struct MyError(pub String);
+
+impl fmt::Display for MyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Database Error: {}", self.0)
+    }
+}
+impl Error for MyError {}
 
 pub struct Database {
-    pool: SqlitePool, // Swapped from PgPool
+    pub pool: SqlitePool, // Swapped to SqlitePool
 }
 
 impl Database {
-    /// Initializes a new SQLite connection pool
-   // src/database.rs inside impl Database
-    pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
-    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-    use std::str::FromStr;
+    pub async fn new(db_url: &str) -> Result<Self, MyError> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect(db_url)
+            .await
+            .map_err(|e| MyError(format!("Failed to connect to SQLite: {}", e)))?;
 
-    // Build connection options manually to force instant disk synchronization
-    let connection_options = SqliteConnectOptions::from_str(database_url)?
-        .create_if_missing(true)
-        .journal_mode(SqliteJournalMode::Wal) // Fast write-ahead logging
-        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal); // Fast but reliable commits
-
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(connection_options) // Use the explicit options
-        .await?;
-        
-    Ok(Self { pool })
+        Ok(Self { pool })
     }
 
-    /// Performs an efficient bulk insert of up to 50 trade records into SQLite
-    pub async fn insert_bulk_trades(&self, trades: &[AggTradeMessage]) -> Result<(), sqlx::Error> {
-        if trades.is_empty() {
-            return Ok(());
-        }
+    pub async fn insert_bitcoin_bulk(&self, batch: &[BitcoinData]) -> Result<(), MyError> {
+        if batch.is_empty() { return Ok(()); }
 
+        // SQLite bulk inserts use dynamically constructed QueryBuilders
         let mut query_builder = QueryBuilder::new(
-            "INSERT INTO agg_trades (agg_trade_id, event_type, event_time, symbol, price, quantity, is_buyer_market_maker) "
+            "INSERT OR IGNORE INTO Bitcoin_Data (agg_trade_id, event_type, event_time, symbol, price, quantity, is_buyer_market_maker) "
         );
 
-        query_builder.push_values(trades, |mut b, trade| {
-            // Note: SQLite safely stores text/strings for high-precision decimals natively!
-            // We can pass your struct's String fields directly without BigDecimal conversion.
+        // Map every row value into standard SQL parameters
+        query_builder.push_values(batch, |mut b, trade| {
             b.push_bind(trade.agg_trade_id as i64)
              .push_bind(&trade.event_type)
              .push_bind(trade.event_time as i64)
              .push_bind(&trade.symbol)
-             .push_bind(&trade.price)      // String bind
-             .push_bind(&trade.quantity)   // String bind
+             .push_bind(trade.price.parse::<f64>().unwrap_or(0.0))
+             .push_bind(trade.quantity.parse::<f64>().unwrap_or(0.0))
              .push_bind(trade.is_buyer_market_maker);
         });
 
-        // SQLite syntax for upsert conflict handling
-        query_builder.push(" ON CONFLICT (agg_trade_id) DO NOTHING");
+        let query = query_builder.build();
+        query.execute(&self.pool)
+            .await
+            .map_err(|e| MyError(format!("Bitcoin SQLite bulk insert failed: {}", e)))?;
+
+        println!("Successfully bulk inserted {} Bitcoin trades to SQLite.", batch.len());
+        Ok(())
+    }
+
+    pub async fn insert_solana_bulk(&self, batch: &[SolanaData]) -> Result<(), MyError> {
+        if batch.is_empty() { return Ok(()); }
+
+        let mut query_builder = QueryBuilder::new(
+            "INSERT OR IGNORE INTO Solana_Data (agg_trade_id, symbol, bid_price, bid_quantity, ask_price, ask_quantity) "
+        );
+
+        query_builder.push_values(batch, |mut b, order| {
+            b.push_bind(order.agg_trade_id as i64)
+             .push_bind(&order.symbol)
+             .push_bind(order.bid_price.parse::<f64>().unwrap_or(0.0))
+             .push_bind(order.bid_quantity.parse::<f64>().unwrap_or(0.0))
+             .push_bind(order.ask_price.parse::<f64>().unwrap_or(0.0))
+             .push_bind(order.ask_quantity.parse::<f64>().unwrap_or(0.0));
+        });
 
         let query = query_builder.build();
-        query.execute(&self.pool).await?;
+        query.execute(&self.pool)
+            .await
+            .map_err(|e| MyError(format!("Solana SQLite bulk insert failed: {}", e)))?;
 
+        println!("Successfully bulk inserted {} Solana updates to SQLite.", batch.len());
         Ok(())
+    }
+}
+
+// 2. The Polymorphic Trait Blueprint using thread-safe Future syntax
+pub trait BulkInsertable: Sized + Send + Sync {
+    fn insert_bulk(db: &Database, batch: &[Self]) -> impl std::future::Future<Output = Result<(), MyError>> + Send;
+}
+
+// 3. Bind the trait behavior to BitcoinData
+impl BulkInsertable for BitcoinData {
+    fn insert_bulk(db: &Database, batch: &[Self]) -> impl std::future::Future<Output = Result<(), MyError>> + Send {
+        async move {
+            db.insert_bitcoin_bulk(batch).await
+        }
+    }
+}
+
+// 4. Bind the trait behavior to SolanaData
+impl BulkInsertable for SolanaData {
+    fn insert_bulk(db: &Database, batch: &[Self]) -> impl std::future::Future<Output = Result<(), MyError>> + Send {
+        async move {
+            db.insert_solana_bulk(batch).await
+        }
     }
 }
