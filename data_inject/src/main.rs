@@ -1,11 +1,5 @@
-//use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-//use futures_util::StreamExt;
-//use tokio::io::{self, AsyncWriteExt};
-//use std::env;
-//Below to call other code files and variables
 use std::time::Instant;
-mod models;
-//mod Spawn_worker;                 
+mod models;             
 use models::BitcoinData;
 use models::SolanaData;
 mod env_var;                
@@ -29,13 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 2=================>>");
     println!("Databse connection [{}]", db_url);
     println!("DEBUG: Attempting to connect to database URL -> [{}]", db_url);
-    //let _db = Database::new(&db_url).await?;
-    //let _db = Database::new(&db_url).await?;
     println!("Step 3=================>>");
-    //stdout.write_all(b"Database pool established!\n").await?;
-    // Allocate space for exactly 50 trade frames to prevent re-allocations
-    //let url_string = format!("wss://{}:{}{}", WEBSOCKET_URL, WEBSOCKET_PORT, BITCOIN_WEBSOCKET_PATH);
-    //println!("DEBUG: Connecting to hardcoded URL -> [{}]", url_string);
     // 2. Launch the concurrent worker pipelines
     let start_time = Instant::now();
     spawn_function::spawn_worker::<BitcoinData>(format!("wss://{}:{}{}", WEBSOCKET_URL, WEBSOCKET_PORT, BITCOIN_WEBSOCKET_PATH).to_string(), BITCOIN_TOKEN_LABEL,DATABASE_URL.to_string());
