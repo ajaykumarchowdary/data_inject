@@ -1,8 +1,9 @@
 //use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 //use futures_util::StreamExt;
-use tokio::io::{self, AsyncWriteExt};
+//use tokio::io::{self, AsyncWriteExt};
 //use std::env;
 //Below to call other code files and variables
+use std::time::Instant;
 mod models;
 //mod Spawn_worker;                 
 use models::BitcoinData;
@@ -11,7 +12,7 @@ mod env_var;
 use env_var::{WEBSOCKET_URL, WEBSOCKET_PORT,BITCOIN_WEBSOCKET_PATH,DATABASE_URL,SOLANA_WEBSOCKET_PATH,BITCOIN_TOKEN_LABEL,SOLANA_TOKEN_LABEL};
 // 1. Declare and import the database module
 mod database;
-use database::Database;
+//use database::Database;
 //Call function file to process it
 mod spawn_function;
 // Forces aggressive memory release after buffers are cleared
@@ -28,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 2=================>>");
     println!("Databse connection [{}]", db_url);
     println!("DEBUG: Attempting to connect to database URL -> [{}]", db_url);
-    let _db = Database::new(&db_url).await?;
+    //let _db = Database::new(&db_url).await?;
     //let _db = Database::new(&db_url).await?;
     println!("Step 3=================>>");
     //stdout.write_all(b"Database pool established!\n").await?;
@@ -36,9 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //let url_string = format!("wss://{}:{}{}", WEBSOCKET_URL, WEBSOCKET_PORT, BITCOIN_WEBSOCKET_PATH);
     //println!("DEBUG: Connecting to hardcoded URL -> [{}]", url_string);
     // 2. Launch the concurrent worker pipelines
+    let start_time = Instant::now();
     spawn_function::spawn_worker::<BitcoinData>(format!("wss://{}:{}{}", WEBSOCKET_URL, WEBSOCKET_PORT, BITCOIN_WEBSOCKET_PATH).to_string(), BITCOIN_TOKEN_LABEL,DATABASE_URL.to_string());
     spawn_function::spawn_worker::<SolanaData>(format!("wss://{}:{}{}", WEBSOCKET_URL, WEBSOCKET_PORT, SOLANA_WEBSOCKET_PATH).to_string(), SOLANA_TOKEN_LABEL,DATABASE_URL.to_string());
-
+    let duration = start_time.elapsed();
+    // 4. Print the exact time taken
+    println!("Bulk insertion finished! Took: {:?}",duration);
     // 3. Keep main thread active so spawned tasks continue printing to the screen
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;

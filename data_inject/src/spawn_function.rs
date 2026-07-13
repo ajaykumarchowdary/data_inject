@@ -2,6 +2,9 @@
 use tokio_tungstenite::connect_async;
 use futures_util::StreamExt;
 use crate::database::{Database, BulkInsertable};
+use std::time::Instant;
+//use std::thread::sleep;
+//use std::time::Duration;
 
 pub fn spawn_worker<T>(url: String, token_label: &'static str, db_url: String)
 where
@@ -15,25 +18,27 @@ where
         let db = Database::new(&db_url).await.expect("Failed to initialize database client");
         
         let mut batch_buffer: Vec<T> = Vec::with_capacity(50);
-
         loop {
             match connect_async(&url).await {
                 Ok((mut ws_stream, _)) => {
                     println!("[{}] Connected successfully! Streaming data below:", token_label);
-
-                    while let Some(Ok(message)) = ws_stream.next().await {
+                      while let Some(Ok(message)) = ws_stream.next().await {
                         if let Ok(text) = message.into_text() {
                             match serde_json::from_str::<T>(&text) {
                                 Ok(data) => {
-                                    println!("[{}] {:?}", token_label, data);
+                                     //println!("[{}] {:?}", token_label, data);
                                     batch_buffer.push(data);
-                                    
                                     if batch_buffer.len() == 50 {
+                                        let _start1 = Instant::now();
                                         // Pass the initialized db instance reference
                                         if let Err(e) = T::insert_bulk(&db, &batch_buffer).await {
                                             eprintln!("[{}] Database bulk insert failed: {:?}", token_label, e);
                                         }
-                                        batch_buffer.clear(); 
+                                        let duration = _start1.elapsed();
+                                        //println!("Database insertion: {:?}", duration);
+                                        // Or format it specifically:
+                                        println!("Database insertion: {}ms", duration.as_millis());
+                                        batch_buffer.clear();
                                     }
                                 }
                                 Err(e) => {
